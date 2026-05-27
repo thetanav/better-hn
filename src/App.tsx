@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Heart, MessageCircle, RefreshCw } from 'lucide-react';
 import {
   type Mode,
   type Story,
@@ -65,7 +66,7 @@ export default function App() {
     setProfile((p) => recordSignalFn(selected, 'deep-read', 1.5, readStart, p));
   }
 
-  const topicChips = useMemo(() => {
+  const topicChips = useMemo((): [string, number][] => {
     const entries = Object.entries(profile.topics)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6);
@@ -79,7 +80,7 @@ export default function App() {
         {/* Left sidebar */}
         <aside className="hidden xl:block border-r border-border px-4 py-3">
           <div className="py-3">
-            <span className="text-xl font-bold tracking-tight">fleet</span>
+            <span className="text-xl font-bold tracking-tight">Better HN</span>
           </div>
 
           <div className="mt-4 border border-border rounded-xl p-4">
@@ -111,7 +112,7 @@ export default function App() {
           <header className="sticky top-0 z-10 bg-black/80 backdrop-blur-md border-b border-border">
             <div className="px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="xl:hidden text-lg font-bold tracking-tight mr-2">fleet</span>
+                <span className="xl:hidden text-lg font-bold tracking-tight mr-2">Better HN</span>
                 <h2 className="text-[15px] font-bold text-white m-0">{mode === 'for-you' ? 'For you' : 'Trending'}</h2>
               </div>
               <div className="flex items-center gap-1">
@@ -120,8 +121,9 @@ export default function App() {
                 <div className="w-px h-4 bg-border mx-1" />
                 <button
                   onClick={() => window.location.reload()}
-                  className="text-[13px] text-accent hover:text-white px-2 py-1 transition-colors"
+                  className="flex items-center gap-1.5 text-[13px] text-accent hover:text-white px-2 py-1 transition-colors"
                 >
+                  <RefreshCw className="w-3.5 h-3.5" />
                   Refresh
                 </button>
               </div>
@@ -157,11 +159,11 @@ export default function App() {
                       )}
                       <div className="flex items-center gap-4 mt-2 text-[13px] text-muted">
                         <span className="flex items-center gap-1">
-                          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M1.751 10c0-4.42 3.584-8 8.005-8h4.366c4.49 0 8.129 3.64 8.129 8.13 0 2.25-.893 4.286-2.408 5.82L14.5 21.17a1.5 1.5 0 01-2.122 0l-5.226-5.22A8.14 8.14 0 011.751 10z" /></svg>
+                          <Heart className="w-4 h-4" />
                           {story.points}
                         </span>
                         <span className="flex items-center gap-1">
-                          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><path d="M1.751 10c0-4.42 3.584-8 8.005-8h4.366c4.49 0 8.129 3.64 8.129 8.13 0 2.25-.893 4.286-2.408 5.82L14.5 21.17a1.5 1.5 0 01-2.122 0l-5.226-5.22A8.14 8.14 0 011.751 10z" /></svg>
+                          <MessageCircle className="w-4 h-4" />
                           {story.comments}
                         </span>
                         <span className="text-accent font-medium">{Math.round(score)}</span>
