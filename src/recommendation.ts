@@ -27,6 +27,7 @@ export type Story = {
   domain: string;
   topic: string;
   excerpt: string;
+  image?: string;
 };
 
 export type Signal = {
@@ -89,6 +90,10 @@ export function inferTopic(text: string) {
 
 export function normalizeStory(hit: any): Story {
   const topic = inferTopic(`${hit.title || ''} ${hit.url || ''} ${hit.author || ''}`);
+  const domain = domainFromUrl(hit.url);
+  // Try to provide a representative image. Many HN links don't include images in the API,
+  // so we use the site's logo via Clearbit as a lightweight proxy. It's optional.
+  const image = hit.image || (domain ? `https://logo.clearbit.com/${domain}` : undefined);
   return {
     id: hit.objectID,
     title: hit.title,
@@ -98,9 +103,10 @@ export function normalizeStory(hit: any): Story {
     comments: hit.num_comments || 0,
     createdAt: hit.created_at,
     createdTs: new Date(hit.created_at).getTime(),
-    domain: domainFromUrl(hit.url),
+    domain,
     topic,
     excerpt: hit.story_text ? stripHtml(hit.story_text).slice(0, 180) : '',
+    image,
   };
 }
 
@@ -109,9 +115,9 @@ export function normalizeStory(hit: any): Story {
 export function fallbackStories(): Story[] {
   const now = Date.now();
   return [
-    { id: '1', title: 'Why developers are shipping smaller AI products', author: 'sara', url: 'https://news.ycombinator.com/', points: 312, comments: 88, createdAt: new Date(now - 2 * 36e5).toISOString(), createdTs: now - 2 * 36e5, domain: 'example.com', topic: 'ai', excerpt: 'A small product can still have a powerful model loop.' },
-    { id: '2', title: 'How a tiny terminal UI won over a large team', author: 'mike', url: 'https://news.ycombinator.com/', points: 204, comments: 51, createdAt: new Date(now - 6 * 36e5).toISOString(), createdTs: now - 6 * 36e5, domain: 'example.com', topic: 'devtools', excerpt: 'A deep dive into shipping faster with good interfaces.' },
-    { id: '3', title: 'A systems lesson from a database outage', author: 'anya', url: 'https://news.ycombinator.com/', points: 188, comments: 62, createdAt: new Date(now - 10 * 36e5).toISOString(), createdTs: now - 10 * 36e5, domain: 'example.com', topic: 'systems', excerpt: 'Reliability is mostly about removing assumptions.' },
+    { id: '1', title: 'Why developers are shipping smaller AI products', author: 'sara', url: 'https://news.ycombinator.com/', points: 312, comments: 88, createdAt: new Date(now - 2 * 36e5).toISOString(), createdTs: now - 2 * 36e5, domain: 'example.com', topic: 'ai', excerpt: 'A small product can still have a powerful model loop.', image: 'https://images.unsplash.com/photo-1526378726363-8a9f4d7f2b39?w=1200&auto=format&fit=crop' },
+    { id: '2', title: 'How a tiny terminal UI won over a large team', author: 'mike', url: 'https://news.ycombinator.com/', points: 204, comments: 51, createdAt: new Date(now - 6 * 36e5).toISOString(), createdTs: now - 6 * 36e5, domain: 'example.com', topic: 'devtools', excerpt: 'A deep dive into shipping faster with good interfaces.', image: 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1200&auto=format&fit=crop' },
+    { id: '3', title: 'A systems lesson from a database outage', author: 'anya', url: 'https://news.ycombinator.com/', points: 188, comments: 62, createdAt: new Date(now - 10 * 36e5).toISOString(), createdTs: now - 10 * 36e5, domain: 'example.com', topic: 'systems', excerpt: 'Reliability is mostly about removing assumptions.', image: 'https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=1200&auto=format&fit=crop' },
   ];
 }
 

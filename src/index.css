@@ -13,7 +13,7 @@
 
   body {
     @apply m-0 bg-black text-[#e7e9ea] antialiased;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: "Manrope", system-ui, -apple-system, sans-serif;
   }
 
   a {
@@ -27,4 +27,5 @@
   ::-webkit-scrollbar {
     width: 0;
   }
+
 }
