@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Heart, MessageCircle, RefreshCw, Settings, Share } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Heart, MessageCircle, RefreshCw, Search, Settings, Share, Sparkles } from "lucide-react";
 import {
+  type Comment,
   type Mode,
   type Story,
   type Profile,
@@ -13,13 +15,34 @@ import {
   scoreStory,
   trendingScore,
   recordSignal as recordSignalFn,
+  fetchCommentTree,
+  stripHtml,
   timeAgo,
 } from "./recommendation";
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("for-you");
-  const [stories, setStories] = useState<Story[]>([]);
-  const [statusText, setStatusText] = useState("Loading...");
+
+  const {
+    data: stories = [],
+    isLoading: feedLoading,
+    refetch: refetchFeed,
+  } = useQuery({
+    queryKey: ["hn-feed"],
+    queryFn: async () => {
+      try {
+        const res = await fetch(FEED_URL);
+        const data = await res.json();
+        return (data.hits || [])
+          .map(normalizeStory)
+          .filter((s: Story) => s.title);
+      } catch {
+        return fallbackStories();
+      }
+    },
+  });
+
+  const statusText = feedLoading ? "Loading..." : `${stories.length} stories`;
   const [selected, setSelected] = useState<Story | null>(null);
   const [profile, setProfile] = useState<Profile>(() => loadProfile());
   const [activeIndex, setActiveIndex] = useState(0);
@@ -35,32 +58,129 @@ export default function App() {
   const [imageOverrides, setImageOverrides] = useState<Record<string, string>>(
     {},
   );
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const {
+    data: searchResults = [],
+    isFetching: searching,
+  } = useQuery<Story[]>({
+    queryKey: ["hn-search", searchQuery],
+    queryFn: async () => {
+      if (!searchQuery.trim()) return [];
+      const res = await fetch(
+        `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(searchQuery)}&hitsPerPage=20`,
+      );
+      const data = await res.json();
+      return (data.hits || [])
+        .map(normalizeStory)
+        .filter((s: Story) => s.title);
+    },
+    enabled: showSearch && searchQuery.trim().length > 0,
+    staleTime: 10 * 60 * 1000,
+  });
+  const [showComments, setShowComments] = useState(false);
+  const [commentStory, setCommentStory] = useState<Story | null>(null);
 
-    async function loadFeed() {
-      setStatusText("Loading...");
-      try {
-        const res = await fetch(FEED_URL);
-        const data = await res.json();
-        if (cancelled) return;
-        const nextStories = (data.hits || [])
-          .map(normalizeStory)
-          .filter((story: Story) => story.title);
-        setStories(nextStories);
-        setStatusText(`${nextStories.length} stories`);
-      } catch {
-        if (cancelled) return;
-        setStories(fallbackStories());
-        setStatusText("Offline");
-      }
+  const {
+    data: commentTree = [],
+    isLoading: commentsLoading,
+  } = useQuery({
+    queryKey: ["hn-comments", commentStory?.id],
+    queryFn: async () => {
+      if (!commentStory) return [];
+      return fetchCommentTree(commentStory.id);
+    },
+    enabled: showComments && !!commentStory,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  // --- Crazy features ---
+  const [topicFilter, setTopicFilter] = useState<string | null>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const confettiCanvasRef = useRef<HTMLCanvasElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+
+  function readingTime(text?: string) {
+    if (!text) return null;
+    const wpm = 200;
+    const words = text.split(/\s+/).length;
+    const min = Math.ceil(words / wpm);
+    return min < 1 ? "<1 min" : `${min} min read`;
+  }
+
+  function surpriseMe() {
+    if (rankedStories.length === 0) return;
+    const idx = Math.floor(Math.random() * rankedStories.length);
+    const id = rankedStories[idx].id;
+    const el = cardRefs.current[id];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth" });
+      setActiveIndex(idx);
+      setSelected(rankedStories[idx]);
     }
+  }
 
-    void loadFeed();
-    return () => {
-      cancelled = true;
-    };
+  function burstConfetti() {
+    const canvas = confettiCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const cvs = canvas;
+    const c = ctx;
+    const colors = ["#ff6600", "#ff3366", "#00ccff", "#ffcc00", "#33ff99", "#9933ff"];
+    const particles: Array<{ x: number; y: number; vx: number; vy: number; color: string; size: number; life: number; rotation: number }> = [];
+    for (let i = 0; i < 80; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 16 + 4;
+      particles.push({
+        x: cvs.width / 2,
+        y: cvs.height / 2,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 6,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: Math.random() * 7 + 3,
+        life: 1,
+        rotation: Math.random() * 360,
+      });
+    }
+    function frame() {
+      c.clearRect(0, 0, cvs.width, cvs.height);
+      let alive = false;
+      for (const p of particles) {
+        if (p.life <= 0) continue;
+        alive = true;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.35;
+        p.vx *= 0.98;
+        p.life -= 0.015;
+        p.rotation += 5;
+        c.globalAlpha = Math.max(0, p.life);
+        c.save();
+        c.translate(p.x, p.y);
+        c.rotate((p.rotation * Math.PI) / 180);
+        c.fillStyle = p.color;
+        c.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+        c.restore();
+      }
+      c.globalAlpha = 1;
+      if (alive) requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  // Track scroll progress
+  useEffect(() => {
+    function onScroll() {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(docHeight > 0 ? Math.min(1, scrollTop / docHeight) : 0);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   useEffect(() => {
@@ -71,10 +191,10 @@ export default function App() {
     ? Math.round(profile.dwellTotal / profile.views)
     : 0;
 
-  const rankedStories = useMemo(
-    () => rankStories(stories, mode, profile, avgDwell),
-    [mode, profile, stories, avgDwell],
-  );
+  const rankedStories = useMemo(() => {
+    const ranked = rankStories(stories, mode, profile, avgDwell);
+    return topicFilter ? ranked.filter((s) => s.topic === topicFilter) : ranked;
+  }, [mode, profile, stories, avgDwell, topicFilter]);
 
   // Persist liked map
   useEffect(() => {
@@ -115,6 +235,8 @@ export default function App() {
     }
   }
 
+
+
   // Observe which card is active using IntersectionObserver
   useEffect(() => {
     const ids = rankedStories.map((s) => s.id);
@@ -133,8 +255,8 @@ export default function App() {
               const story = rankedStories[idx];
               if (story) {
                 setSelected(story);
-                // attempt OG fetch if we don't already have an image
-                if (!story.image && !imageOverrides[story.id])
+                // attempt OG fetch if we don't already have an override
+                if (!imageOverrides[story.id])
                   void tryFetchOgImage(story);
               }
             }
@@ -156,12 +278,26 @@ export default function App() {
   // Keyboard navigation
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "ArrowDown" || e.key === "PageDown") {
+      // Don't handle if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === "?") {
+        e.preventDefault();
+        setShowShortcuts((s) => !s);
+      } else if (e.key === "/") {
+        e.preventDefault();
+        setShowSearch(true);
+        setSearchQuery("");
+      } else if (e.key === "Escape") {
+        if (showSearch) setShowSearch(false);
+        if (showComments) setShowComments(false);
+        if (showShortcuts) setShowShortcuts(false);
+      } else if (!showSearch && !showComments && (e.key === "ArrowDown" || e.key === "PageDown")) {
         const next = Math.min(rankedStories.length - 1, activeIndex + 1);
         const id = rankedStories[next]?.id;
         const el = id ? cardRefs.current[id] : null;
         if (el) el.scrollIntoView({ behavior: "smooth" });
-      } else if (e.key === "ArrowUp" || e.key === "PageUp") {
+      } else if (!showSearch && !showComments && (e.key === "ArrowUp" || e.key === "PageUp")) {
         const prev = Math.max(0, activeIndex - 1);
         const id = rankedStories[prev]?.id;
         const el = id ? cardRefs.current[id] : null;
@@ -170,7 +306,7 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeIndex, rankedStories]);
+  }, [activeIndex, rankedStories, showSearch, showComments, showShortcuts]);
 
   function toggleLike(story: Story) {
     setLiked((l) => {
@@ -178,6 +314,7 @@ export default function App() {
       // If the story is being liked (turned on), record a stronger signal (2x boost)
       if (!l[story.id]) {
         setProfile((p) => recordSignalFn(story, "open", 2, 0, p));
+        burstConfetti();
       }
       return next;
     });
@@ -239,8 +376,23 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
-      <div className="mx-auto grid min-h-screen max-w-[1400px] grid-cols-1 xl:grid-cols-[260px_minmax(0,1fr)_340px]">
+    <div className="min-h-screen bg-black relative">
+      {/* Animated ambient background */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-1/4 -left-1/4 w-1/2 h-1/2 rounded-full bg-accent/5 blur-[120px] animate-float" />
+        <div className="absolute -bottom-1/4 -right-1/4 w-1/2 h-1/2 rounded-full bg-[#3366ff]/5 blur-[120px] animate-float" style={{ animationDelay: "-6s" }} />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-1/3 h-1/3 rounded-full bg-[#ff3366]/5 blur-[100px] animate-pulse-glow" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/20 to-black" />
+      </div>
+      {/* Confetti canvas */}
+      <canvas
+        ref={confettiCanvasRef}
+        className="fixed inset-0 pointer-events-none z-[60]"
+        width={window.innerWidth}
+        height={window.innerHeight}
+      />
+
+      <div className="mx-auto grid min-h-screen max-w-[1400px] grid-cols-1 xl:grid-cols-[260px_minmax(0,1fr)_340px] relative z-10">
         {/* Left sidebar */}
         <aside className="hidden xl:block border-r border-border px-4 py-3">
           <div className="py-3">
@@ -279,14 +431,30 @@ export default function App() {
         {/* Main feed */}
         <main className="border-r border-border min-w-0">
           <header className="sticky top-0 z-10 bg-black/80 backdrop-blur-md border-b border-border">
-            <div className="px-4 py-3 flex items-center justify-between">
-              <span className="xl:hidden text-lg font-bold tracking-tight mr-2">
+            <div className="px-4 py-2 flex items-center justify-between gap-2">
+              <span className="xl:hidden text-lg font-bold tracking-tight shrink-0">
                 Better HN
               </span>
-              <div className="px-4 py-2 text-[13px] text-muted">
-                {rankedStories.length} · {statusText}
+              <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
+                {/* Topic filters */}
+                {Array.from(new Set(rankedStories.map((s) => s.topic))).slice(0, 6).map((topic) => (
+                  <button
+                    key={topic}
+                    onClick={() => setTopicFilter(topicFilter === topic ? null : topic)}
+                    className={`shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${
+                      topicFilter === topic
+                        ? "bg-accent text-white"
+                        : "bg-surface/50 text-muted border border-border hover:text-white"
+                    }`}
+                  >
+                    {topic}
+                  </button>
+                ))}
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
+                <div className="text-[12px] text-muted mr-1 hidden md:block">
+                  {rankedStories.length} · {statusText}
+                </div>
                 <Tab
                   active={mode === "for-you"}
                   onClick={() => setMode("for-you")}
@@ -300,6 +468,19 @@ export default function App() {
                   Trending
                 </Tab>
                 <div className="w-px h-4 bg-border mx-1" />
+                <button
+                  onClick={surpriseMe}
+                  title="Surprise me"
+                  className="flex items-center gap-1.5 text-[13px] text-muted hover:text-accent px-2 py-1 transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => { setShowSearch(true); setSearchQuery(""); }}
+                  className="flex items-center gap-1.5 text-[13px] text-muted hover:text-white px-2 py-1 transition-colors"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                </button>
                 <button
                   onClick={() => window.location.reload()}
                   className="flex items-center gap-1.5 text-[13px] text-accent hover:text-white px-2 py-1 transition-colors"
@@ -349,6 +530,12 @@ export default function App() {
                             <span className="text-accent">{story.domain}</span>
                           </>
                         )}
+                        {readingTime(story.excerpt) && (
+                          <>
+                            <span>·</span>
+                            <span className="text-[#33ff99]/70">{readingTime(story.excerpt)}</span>
+                          </>
+                        )}
                       </div>
 
                       <h3 className="text-[17px] md:text-[18px] font-semibold text-white leading-relaxed mt-1">
@@ -361,15 +548,22 @@ export default function App() {
                       )}
 
                       <img
-                        src={`https://picsum.photos/1200/800`}
-                        alt="story"
+                        src={imageOverrides[story.id] || story.image || svgPlaceholder(story.title)}
+                        alt={story.title}
                         className="mt-3 h-96 w-full rounded-2xl border border-border object-cover"
+                        onError={(e) => {
+                          if ((e.target as HTMLImageElement).src !== svgPlaceholder(story.title)) {
+                            (e.target as HTMLImageElement).src = svgPlaceholder(story.title);
+                          }
+                        }}
                       />
 
                       <div className="mt-4 flex items-center justify-between text-[13px] text-muted">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            setCommentStory(story);
+                            setShowComments(true);
                           }}
                           className="flex items-center gap-2 hover:text-white transition-colors"
                         >
@@ -462,6 +656,98 @@ export default function App() {
           )}
         </aside>
       </div>
+      {showSearch ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 pt-[15vh]"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowSearch(false); }}
+        >
+          <div className="w-full max-w-xl rounded-2xl border border-border bg-black shadow-xl overflow-hidden">
+            <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+              <Search className="w-4 h-4 text-muted shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search Hacker News..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 bg-transparent text-[14px] text-white outline-none placeholder:text-muted"
+                autoFocus
+              />
+              <button
+                onClick={() => setShowSearch(false)}
+                className="text-[13px] text-muted hover:text-white shrink-0"
+              >
+                Esc
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto divide-y divide-border">
+              {searching ? (
+                <div className="px-4 py-8 text-center text-[13px] text-muted">Searching...</div>
+              ) : searchQuery && searchResults.length === 0 ? (
+                <div className="px-4 py-8 text-center text-[13px] text-muted">No results found</div>
+              ) : !searchQuery ? (
+                <div className="px-4 py-8 text-center text-[13px] text-muted">Type to search HN stories</div>
+              ) : (
+                searchResults.map((result) => (
+                  <div
+                    key={result.id}
+                    onClick={() => {
+                      openStory(result);
+                      setShowSearch(false);
+                    }}
+                    className="px-4 py-3 cursor-pointer hover:bg-white/[0.04] transition-colors"
+                  >
+                    <div className="flex items-center gap-2 text-[12px] text-muted">
+                      <span className="text-white font-medium text-[13px]">{result.author}</span>
+                      <span>·</span>
+                      <span>{timeAgo(result.createdTs)}</span>
+                      {result.domain && <><span>·</span><span className="text-accent">{result.domain}</span></>}
+                    </div>
+                    <div className="text-[14px] text-white font-medium mt-0.5 line-clamp-2">{result.title}</div>
+                    <div className="flex items-center gap-3 text-[12px] text-muted mt-1">
+                      <span>{result.points} points</span>
+                      <span>{result.comments} comments</span>
+                      <span className="bg-surface border border-border rounded-full px-2 py-0.5 text-[11px]">{result.topic}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showComments ? (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-end"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowComments(false); }}
+        >
+          <div className="w-full max-w-2xl mx-auto bg-black border border-border rounded-t-2xl shadow-xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+              <div>
+                <span className="text-[15px] font-semibold text-white">Comments</span>
+                {commentStory && (
+                  <span className="text-[13px] text-muted ml-2">on {commentStory.title.slice(0, 60)}</span>
+                )}
+              </div>
+              <button
+                onClick={() => setShowComments(false)}
+                className="text-[13px] text-muted hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 space-y-3">
+              {commentsLoading ? (
+                <div className="text-center text-[13px] text-muted py-8">Loading comments...</div>
+              ) : commentTree.length === 0 ? (
+                <div className="text-center text-[13px] text-muted py-8">No comments yet</div>
+              ) : (
+                commentTree.map((c) => <CommentThread key={c.id} comment={c} depth={0} />)
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showSettings ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-sm rounded-2xl border border-border bg-black p-5 shadow-xl">
@@ -491,6 +777,48 @@ export default function App() {
           </div>
         </div>
       ) : null}
+
+      {/* Scroll-to-top button with progress ring */}
+      {scrollProgress > 0.05 && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="fixed bottom-6 right-6 z-40 w-12 h-12 flex items-center justify-center rounded-full bg-surface border border-border hover:border-accent transition-all hover:scale-110"
+        >
+          <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" strokeWidth="3" className="text-border" />
+            <circle
+              cx="50" cy="50" r="44" fill="none" stroke="#ff6600" strokeWidth="3"
+              strokeDasharray={276.46}
+              strokeDashoffset={276.46 * (1 - scrollProgress)}
+              strokeLinecap="round"
+              className="transition-all duration-200"
+            />
+          </svg>
+          <span className="text-[16px] font-bold text-white relative z-10">↑</span>
+        </button>
+      )}
+
+      {/* Keyboard shortcuts modal */}
+      {showShortcuts && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowShortcuts(false); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-black p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[15px] font-semibold text-white">Keyboard shortcuts</span>
+              <button onClick={() => setShowShortcuts(false)} className="text-[13px] text-muted hover:text-white">Close</button>
+            </div>
+            <div className="space-y-2.5 text-[13px]">
+              <div className="flex justify-between"><span className="text-muted">Search</span><kbd className="bg-surface border border-border rounded px-2 py-0.5 text-[12px]">/</kbd></div>
+              <div className="flex justify-between"><span className="text-muted">Next story</span><kbd className="bg-surface border border-border rounded px-2 py-0.5 text-[12px]">↓</kbd></div>
+              <div className="flex justify-between"><span className="text-muted">Previous story</span><kbd className="bg-surface border border-border rounded px-2 py-0.5 text-[12px]">↑</kbd></div>
+              <div className="flex justify-between"><span className="text-muted">Close modals</span><kbd className="bg-surface border border-border rounded px-2 py-0.5 text-[12px]">Esc</kbd></div>
+              <div className="flex justify-between"><span className="text-muted">This cheat sheet</span><kbd className="bg-surface border border-border rounded px-2 py-0.5 text-[12px]">?</kbd></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -502,6 +830,51 @@ function Metric({ value, label }: { value: string; label: string }) {
       <span className="text-[11px] text-muted uppercase tracking-wider">
         {label}
       </span>
+    </div>
+  );
+}
+
+function CommentThread({ comment, depth }: { comment: Comment; depth: number }) {
+  const [collapsed, setCollapsed] = useState(depth > 0);
+  const text = comment.text ? stripHtml(comment.text).slice(0, 600) : "[deleted]";
+  const childCount = comment.children?.length || 0;
+  return (
+    <div className={`${depth > 0 ? "ml-6 border-l border-border pl-3" : ""}`}>
+      <div className="py-1.5">
+        <div className="flex items-center gap-2 text-[12px] text-muted">
+          {childCount > 0 && (
+            <button
+              onClick={() => setCollapsed((c) => !c)}
+              className="text-[11px] text-muted hover:text-white mr-0.5 shrink-0 w-4 text-center"
+            >
+              {collapsed ? "+" : "−"}
+            </button>
+          )}
+          <span className="text-[13px] font-medium text-white">
+            {comment.author || "anonymous"}
+          </span>
+          {childCount > 0 && (
+            <span className="text-[11px] text-muted">
+              {childCount} {childCount === 1 ? "reply" : "replies"}
+            </span>
+          )}
+          {comment.points != null && (
+            <>
+              <span>·</span>
+              <span>{comment.points} pts</span>
+            </>
+          )}
+        </div>
+        {!collapsed && (
+          <p className="text-[13px] text-[#e7e9ea] mt-0.5 leading-relaxed">
+            {text}
+          </p>
+        )}
+      </div>
+      {!collapsed && childCount > 0 &&
+        comment.children.map((child) => (
+          <CommentThread key={child.id} comment={child} depth={depth + 1} />
+        ))}
     </div>
   );
 }

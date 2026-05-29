@@ -137,6 +137,28 @@ export function saveProfile(profile: Profile) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
 }
 
+// --- Comment types ---
+
+export type Comment = {
+  id: number;
+  author: string;
+  text: string;
+  created_at: string;
+  children: Comment[];
+  points?: number;
+};
+
+export async function fetchCommentTree(storyId: string): Promise<Comment[]> {
+  try {
+    const res = await fetch(`https://hn.algolia.com/api/v1/items/${storyId}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.children || [];
+  } catch {
+    return [];
+  }
+}
+
 // --- Scoring algorithms ---
 
 export function readingBias(topic: string, profile: Profile, avgDwell: number) {
