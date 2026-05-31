@@ -161,11 +161,69 @@ export default function App() {
     }
   }
 
-  // Helper: generate a small SVG placeholder data URI when image fails
-  function svgPlaceholder(text: string) {
-    const escaped = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'><rect width='100%' height='100%' fill='#0f172a'/><text x='50%' y='50%' fill='#94a3b8' font-family='Inter,system-ui,sans-serif' font-size='36' dominant-baseline='middle' text-anchor='middle'>${escaped}</text></svg>`;
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  // Helper: generate a random aesthetic SVG art placeholder
+  function placeholderArt(title: string) {
+    let h = 0;
+    for (let i = 0; i < title.length; i++) {
+      h = ((h << 5) - h) + title.charCodeAt(i) | 0;
+    }
+    h = Math.abs(h);
+    let s = h;
+    const r = () => {
+      s = (s * 16807) % 2147483647;
+      return (s - 1) / 2147483646;
+    };
+
+    const palettes = [
+      ['#7c3aed', '#a78bfa', '#c4b5fd'],
+      ['#0ea5e9', '#38bdf8', '#7dd3fc'],
+      ['#f59e0b', '#fbbf24', '#fcd34d'],
+      ['#ec4899', '#f472b6', '#f9a8d4'],
+      ['#10b981', '#34d399', '#6ee7b7'],
+      ['#ef4444', '#f87171', '#fca5a5'],
+      ['#8b5cf6', '#6366f1', '#818cf8'],
+      ['#06b6d4', '#22d3ee', '#67e8f9'],
+    ];
+    const p = palettes[h % palettes.length];
+
+    const blobs: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const cx = Math.round(100 + r() * 1000);
+      const cy = Math.round(100 + r() * 600);
+      const rad = Math.round(200 + r() * 300);
+      blobs.push(`<circle cx="${cx}" cy="${cy}" r="${rad}" fill="url(#b${i})"/>`);
+    }
+
+    const rings: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const cx = Math.round(100 + r() * 1000);
+      const cy = Math.round(100 + r() * 600);
+      const rad = Math.round(40 + r() * 100);
+      rings.push(`<circle cx="${cx}" cy="${cy}" r="${rad}" fill="none" stroke="${p[Math.floor(r() * 3)]}" stroke-width="1" opacity="${(0.08 + r() * 0.12).toFixed(2)}"/>`);
+    }
+
+    const dots: string[] = [];
+    for (let i = 0; i < 14; i++) {
+      dots.push(`<circle cx="${Math.round(r() * 1200)}" cy="${Math.round(r() * 800)}" r="${Math.round(2 + r() * 5)}" fill="${p[Math.floor(r() * 3)]}" opacity="${(0.15 + r() * 0.2).toFixed(2)}"/>`);
+    }
+
+    const defs = blobs.map((_, i) =>
+      `<radialGradient id="b${i}" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="${p[i % 3]}" stop-opacity=".25"/><stop offset="100%" stop-color="${p[i % 3]}" stop-opacity="0"/></radialGradient>`
+    ).join('');
+
+    const escaped = title.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const lines: string[] = [];
+    for (let i = 0; i < escaped.length; i += 32) {
+      lines.push(escaped.slice(i, i + 32));
+    }
+    const totalLines = lines.length;
+    const text = lines.map((line, i) =>
+      `<tspan x="600" text-anchor="middle" dy="${i === 0 ? 0 : 36}">${line}</tspan>`
+    ).join('');
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#0a0a0f"/>${defs ? `<defs>${defs}</defs>` : ''}${blobs.join('')}${rings.join('')}${dots.join('')}<text x="600" y="${400 - (totalLines - 1) * 18}" fill="white" font-family="Inter,'SF Pro Display','Segoe UI',system-ui,sans-serif" font-size="30" font-weight="700" opacity="0.85" text-anchor="middle">${text}</text></svg>`;
+
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
   }
 
   return (
@@ -244,15 +302,15 @@ export default function App() {
                     )}
 
                     <img
-                      src={story.image || svgPlaceholder(story.title)}
+                      src={story.image || placeholderArt(story.title)}
                       alt={story.title}
                       className="mt-3 h-96 w-full rounded-2xl border border-border object-cover"
                       onError={(e) => {
                         if (
                           (e.target as HTMLImageElement).src !==
-                          svgPlaceholder(story.title)
+                          placeholderArt(story.title)
                         ) {
-                          (e.target as HTMLImageElement).src = svgPlaceholder(
+                          (e.target as HTMLImageElement).src = placeholderArt(
                             story.title,
                           );
                         }
